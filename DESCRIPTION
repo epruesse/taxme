@@ -1,0 +1,11 @@
+Package: taxme
+Type: Package
+Title: Utilities for working with the NCBI taxonomy
+Version: 0.1.0
+Author: Elmar Pruesse
+Maintainer: Elmar pruesse <elmar.pruesse@ucdenver.edu>
+Description: Provides functions for summarizing counts
+    assigned to NCBI taxonomy nodes.
+License: GPLv3
+Encoding: UTF-8
+LazyData: true
