@@ -6,6 +6,10 @@ Author: Elmar Pruesse
 Maintainer: Elmar pruesse <elmar.pruesse@ucdenver.edu>
 Description: Provides functions for summarizing counts
     assigned to NCBI taxonomy nodes.
-License: GPLv3
+License: GPL-3
 Encoding: UTF-8
 LazyData: true
+URL: http://github.com/epruesse/taxme
+BugReports: https://github.com/epruesse/taxme/issues
+Imports: data.table
+RoxygenNote: 6.0.1

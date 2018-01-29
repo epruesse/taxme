@@ -1,16 +1,79 @@
-library(data.table)
+#' Taxme: A package for handling NCBI taxonomy IDs
+#'
+#' @docType package
+#' @name taxme
+NULL
 
-download.ncbitax <- function() {
-  url <- "ftp://ftp.ncbi.nlm.nih.gov/pub/taxonomy/"
-  fname <- "taxdump.tar.gz"
-  tmpdir <- paste0(tempdir(), "/ncbitax/")
-  dir.create(tmpdir)
-  download.file(paste0(url, fname), paste0(tmpdir, fname))
-  system(paste0("tar -C ", tmpdir, " -xzf ", paste0(tmpdir,fname)))
-  tmpdir
+
+#' Environment keeping cached NCBI tree
+#' @keywords internal
+cacheEnv <- new.env(parent=emptyenv())
+
+#' Logging helper
+#' @keywords internal
+logger <- function(...) {
+  cat(sprintf(...), sep='', file=stderr())
+  flush.console()
 }
 
-read.ncbi <- function(dir, nrows=-1, use.cache=TRUE, clear.cache=FALSE) {
+#' Download NCBI Taxonomy Files
+#'
+#' Downloads the NCBI Taxonomy dump and unpacks it into a temporary directory.
+#'
+#' @param destdir Directory to unpack files into. A temporary directory will be
+#'   created if this is not provided.
+#' @param baseurl URL from which taxdump should be downloaded
+#' @param fname Filename to expect at \code{baseurl}
+#'
+#' @return Directory name
+#'
+#' @seealso \code{\link{read.ncbi}}
+#'
+#' @examples
+#' dirname <- download.ncbitax()
+#'
+#' @export
+#'
+download.ncbitax <- function(
+  destdir,
+  baseurl = "ftp://ftp.ncbi.nlm.nih.gov/pub/taxonomy/",
+  fname = "taxdump.tar.gz"
+) {
+  if (missing(destdir)) {
+    destdir <- paste0(tempdir(), "/ncbitax/")
+  }
+  dir.create(destdir)
+  download.file(paste0(baseurl, fname), paste0(destdir, fname))
+  system(paste0("tar -C ", destdir, " -xzf ", paste0(destdir,fname)))
+  unlink(paste0(destdir, fname))
+  destdir
+}
+
+#' Load NCBI Taxonomy Tree
+#'
+#' Prepares the  NCBI taxonomy for use with the other functions in \link{taxme}.
+#'
+#' @param dir Optional directory containing the unpackaged NCBI taxonomy dump
+#'   files names.dmp, nodes.dmp and merged.dmp. If not provided, files will be
+#'   downloaded using \code{\link{download.ncbitax}} automatically.
+#' @param use.cache Since downloading and parsing the dumps from NCBI is time
+#'   consuming, read.ncbi will cache the final data.table in the file
+#'   "\code{ncbitax.Rds}" in the CWD. If this parameter is set to \code{FALSE},
+#'   an existing cache file will be ignored.
+#' @param clear.cache Delete an existing "ncbitax.Rds" before proceeding to
+#'   prepare data structure if set to \code{TRUE}.
+#'
+#' @return Returns a data.table containing NCBI taxonomy. The table is also
+#'   cached internally for use with the functions within this package.
+#'
+#' @seealso \code{\link{ncbi.lineage}}
+#'
+#' @import data.table
+#' @export
+read.ncbi <- function(dir, use.cache=TRUE, clear.cache=FALSE, env.cache=TRUE) {
+  if (env.cache && !is.null(cacheEnv$ncbi)) {
+    return (cacheEnv$ncbi)
+  }
   if (length(list.files(pattern="ncbitax.Rds"))) {
     if (clear.cache) {
       unlink("ncbitax.Rds")
@@ -24,37 +87,28 @@ read.ncbi <- function(dir, nrows=-1, use.cache=TRUE, clear.cache=FALSE) {
   } else {
     unlink_dir <- FALSE
   }
-  warning("reading nodes...")
-  nodes <- read.delim(paste0(dir, "/nodes.dmp"),
-                      nrows=nrows,
-                      sep="|",
-                      strip.white=TRUE,
-                      col.names = c('tax_id', 'parent_id','rank',1:11),
-                      header=FALSE) %>%
-    select(tax_id, parent_id, rank)
+  logger("reading nodes...\n")
+  nodes <- fread(paste0(dir, 'nodes.dmp'),
+                 select=c(1,3,5),
+                 col.names=c('tax_id', 'parent_id','rank'),
+                 key="tax_id")
 
-  warning("reading merged nodes...")
-  merged <- read.delim(paste0(dir, "/merged.dmp"),
-                       nrows=nrows,
-                       sep="|",
-                       strip.white=TRUE,
-                       stringsAsFactors=FALSE,
-                       col.names = c('tax_id', 'parent_id','rank',1),
-                       header=FALSE) %>%
-    select(tax_id, parent_id) %>%
-    mutate(rank = "None")
+  logger("reading merged nodes...\n")
+  merged <- fread(paste0(dir, "/merged.dmp"),
+                  select=c(1,3),
+                  col.names = c('tax_id', 'parent_id'),
+                  key="tax_id")
+  merged$rank <- "None"
 
-  warning("reading names...")
-  names <- read.delim(paste0(dir, "/names.dmp"),
-                      nrows=nrows,
-                      sep="|",
-                      strip.white=TRUE,
-                      quote="",
-                      stringsAsFactors=FALSE,
-                      col.names= c('tax_id', 'name', 'uname', 'name_cls',1),
-                      header=FALSE) %>%
-    filter(name_cls=="scientific name")  %>%
-    select(tax_id, name)
+  logger("reading names...\n")
+  tnames <- fread(paste0(dir, "/names.dmp"),
+                  quote="",
+                  select=c(1,3,7),
+                  col.names= c('tax_id', 'name', 'name_cls'),
+                  key="name_cls")
+  tnames <- tnames["scientific name"]
+  setkey(tnames, "tax_id")
+  tnames$name_cls <- NULL
 
   if (unlink_dir) {
     unlink(dir, recursive=TRUE)
@@ -62,20 +116,36 @@ read.ncbi <- function(dir, nrows=-1, use.cache=TRUE, clear.cache=FALSE) {
 
   nodes <- rbind(merged, nodes)
   nodes <- nodes[order(nodes$tax_id), ]
-  ncbi <- merge(nodes, names, all.x=True) %>%
-    mutate(rank = as.factor(rank))
+  ncbi <- merge(nodes, tnames, all.x=TRUE, by="tax_id")
+  ncbi$rank <- as.factor(ncbi$rank)
   ncbi <- data.table(ncbi)
-  setkey(ncbi, tax_id)
 
   if (use.cache) {
     saveRDS(ncbi, file="ncbitax.Rds")
   }
-  assign(".ncbi", ncbi, envir = .GlobalEnv)
+  cacheEnv$ncbi = ncbi
   ncbi
 }
 
-
-ncbi.lineage <- function(tax_id, ncbi=.ncbi) {
+#' Computes lineage from NCBI tax_id
+#'
+#' @param tax_id NCBI taxid(s). Passing a vector is highly recommended over
+#'   calling \code{ncbi.lineage} multiple times.
+#' @param ncbi Explicitly provide NCBI taxonomy as generated by
+#'   \code{\link{read.ncbi}}.
+#' @return List of NCBI taxids. If \code{tax_id} is a vector, a list of lists
+#'   will be returned with all lists filled to matching lengths using the id of
+#'   the root node (1).
+#'
+#' @examples
+#'
+#' ncbi.lineage(9606)
+#'
+#' @seealso \code{\link{ncbi.path}}
+#' @import data.table
+#' @export
+#'
+ncbi.lineage <- function(tax_id, ncbi=read.ncbi()) {
   lids = list(tax_id)
   setDT(lids, "tax_id")
   lin = list()
@@ -89,21 +159,41 @@ ncbi.lineage <- function(tax_id, ncbi=.ncbi) {
   data.table::transpose(lin)
 }
 
-ncbi.path <- function(t_tax_id, ncbi=.ncbi) {
+#' Computes taxonomy path from NCBI tax_id
+#'
+#' @param tax_id NCBI taxid(s). Passing a vector is highly recommended over
+#'   calling \code{ncbi.path} multiple times.
+#' @param ncbi Explicitly provide NCBI taxonomy as generated by
+#'   \code{\link{read.ncbi}}.
+#' @return List of NCBI taxonomy node names. If \code{tax_id} is a vector, a
+#'   list of lists will be returned.
+#' @examples
+#' ncbi.path(9606)
+#' @seealso \code{\link{ncbi.lineage}}
+#' @import data.table
+#' @export
+ncbi.path <- function(t_tax_id, ncbi=read.ncbi()) {
   lapply(ncbi.lineage(t_tax_id),
          function(x) ncbi[list(x), name, rank])
 }
 
+#' Computes normalized taxonomy path from NCBI tax_id
+#' @export
+ncbi.norm_path <- function(t_tax_id,
+                           ncbi=read.ncbi(),
+                           ranks = factor(c("species", "genus", "family", "order", "class", "phylum", "superkingdom"))
+                           ) {
+  #                    levels=levels(ncbi$rank))
 
-norm_ranks = factor(c("species", "genus", "family", "order", "class", "phylum", "superkingdom"),
-                    levels=levels(ncbi$rank))
-
-ncbi.norm_path <- function(t_tax_id, ncbi=.ncbi) {
   lapply(ncbi.lineage(t_tax_id),
          function(x) ncbi[list(x)][list(norm_ranks), on="rank", name, rank])
 }
 
-ncbi.get_rank <- function(t_tax_id, t_rank="superkingdom", ncbi=.ncbi) {
+#' Undocumented
+#' @export
+ncbi.get_rank <- function(t_tax_id,
+                          t_rank="superkingdom",
+                          ncbi=read.ncbi()) {
   ranks <- ncbi[list("superkingdom"), on="rank", tax_id, name]
   taxranks <- unlist(sapply(
     ncbi.lineage(t_tax_id),
@@ -112,7 +202,12 @@ ncbi.get_rank <- function(t_tax_id, t_rank="superkingdom", ncbi=.ncbi) {
   ranks[list(taxranks),on="tax_id", name]
 }
 
-ncbi.group <- function(taxid, ranks=c(), nodes=c(), ncbi=.ncbi) {
+
+#' Undocumented
+#' @export
+ncbi.group <- function(taxid, ranks=c(),
+                       nodes=c(),
+                       ncbi=read.ncbi()) {
   terminal = ncbi[1]
   if (length(ranks) > 0) {
     terminal <- rbind(ncbi[list(ranks), on="rank"], terminal)
