@@ -10,6 +10,7 @@ NULL
 cacheEnv <- new.env(parent=emptyenv())
 
 #' Logging helper
+#' @importFrom utils flush.console
 #' @keywords internal
 logger <- function(...) {
   cat(sprintf(...), sep='', file=stderr())
@@ -32,8 +33,8 @@ logger <- function(...) {
 #' @examples
 #' dirname <- download.ncbitax()
 #'
+#' @importFrom utils download.file
 #' @export
-#'
 download.ncbitax <- function(
   destdir,
   baseurl = "ftp://ftp.ncbi.nlm.nih.gov/pub/taxonomy/",
@@ -205,25 +206,10 @@ ncbi.path <- function(tax_id,
       ranks <- c("species", "genus", "family", "order", "class", "phylum", "superkingdom")
     }
     ranks <- factor(ranks, levels=levels(ncbi$rank))
-    lapply(ncbi.lineage(t_tax_id),
+    lapply(ncbi.lineage(tax_id),
            function(x) ncbi[list(x)][list(ranks), on="rank", name, rank])
   }
 }
-
-
-#' Undocumented
-#' @keywords internal
-ncbi.get_rank <- function(t_tax_id,
-                          t_rank="superkingdom",
-                          ncbi=read.ncbi()) {
-  ranks <- ncbi[list("superkingdom"), on="rank", tax_id, name]
-  taxranks <- unlist(sapply(
-    ncbi.lineage(t_tax_id),
-    function(x) { n = x %in% ranks$tax_id; if (length(n)) x[n] else 1 }
-  ))
-  ranks[list(taxranks),on="tax_id", name]
-}
-
 
 #' Yield summary group name for taxids
 #'
