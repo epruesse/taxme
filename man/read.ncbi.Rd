@@ -18,6 +18,9 @@ an existing cache file will be ignored.}
 
 \item{clear.cache}{Delete an existing "ncbitax.Rds" before proceeding to
 prepare data structure if set to \code{TRUE}.}
+
+\item{env.cache}{If \code{TRUE} (default), \code{read.ncbi} will try to
+return the taxonomy object cached from its last invocation.}
 }
 \value{
 Returns a data.table containing NCBI taxonomy. The table is also
@@ -25,6 +28,11 @@ Returns a data.table containing NCBI taxonomy. The table is also
 }
 \description{
 Prepares the  NCBI taxonomy for use with the other functions in \link{taxme}.
+}
+\examples{
+
+ncbi <- read.ncbi()
+
 }
 \seealso{
 \code{\link{ncbi.lineage}}

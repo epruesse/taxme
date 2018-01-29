@@ -9,3 +9,4 @@ ncbi.get_rank(t_tax_id, t_rank = "superkingdom", ncbi = read.ncbi())
 \description{
 Undocumented
 }
+\keyword{internal}
