@@ -2,3 +2,5 @@
 .Rhistory
 .RData
 .Ruserdata
+# Don't add the taxonomy cache
+ncbitax.Rds
